@@ -1,0 +1,85 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Plugin (Auto-detect JUCE)",
+            "type": "shell",
+            "command": "${workspaceFolder}/build.sh",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Build with vcpkg",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "..",
+                "-DCMAKE_TOOLCHAIN_FILE=/usr/local/vcpkg/scripts/buildsystems/vcpkg.cmake",
+                "-DCMAKE_BUILD_TYPE=Release"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/build"
+            },
+            "group": "build",
+            "dependsOn": "Create Build Directory"
+        },
+        {
+            "label": "Build with FetchContent",
+            "type": "shell",
+            "command": "bash",
+            "args": [
+                "-c",
+                "cp CMakeLists-FetchContent.txt CMakeLists.txt && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "dependsOn": "Create Build Directory"
+        },
+        {
+            "label": "Create Build Directory",
+            "type": "shell",
+            "command": "mkdir",
+            "args": [
+                "-p",
+                "build"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "Clean Build",
+            "type": "shell",
+            "command": "rm",
+            "args": [
+                "-rf",
+                "build"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "Run Standalone Plugin",
+            "type": "shell",
+            "command": "./build/KadmiumDMXPlugin_artefacts/Release/Standalone/KadmiumDMXPlugin",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "dependsOn": "Build Plugin (Auto-detect JUCE)"
+        }
+    ]
+}

@@ -1,0 +1,185 @@
+# Build directories
+build/
+builds/
+Build/
+Builds/
+out/
+cmake-build-*/
+_build/
+
+# JUCE-specific build artifacts
+*_artefacts/
+*.jucer.bak
+
+# Visual Studio Code
+.vscode/settings.json
+.vscode/launch.json
+.vscode/ipch/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+
+# vcpkg
+vcpkg_installed/
+.vcpkg-root
+
+# C++ artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+*.exe
+*.out
+*.app
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+*.ilk
+
+# Compiled Dynamic libraries
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Qt-MOC
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.moc
+
+# Mac specific
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows specific
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+*.lnk
+
+# Linux specific
+*~
+.nfs*
+
+# IDE files
+*.swp
+*.swo
+*~
+.#*
+\#*#
+.*.swp
+.*.swo
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.cache
+
+# Node modules (if using any web components)
+node_modules/
+
+# Python (if using any Python scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# Audio files (large test files)
+*.wav
+*.mp3
+*.flac
+*.aiff
+*.au
+*.ogg
+*.m4a
+
+# Plugin formats (generated)
+*.vst
+*.vst3
+*.au
+*.component
+
+# Package files
+*.deb
+*.rpm
+*.pkg
+*.dmg
+*.tar.gz
+*.zip
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Core dumps
+core
+core.*
+
+# Profiling data
+*.prof
+*.gmon.out
+
+# Coverage data
+*.gcov
+*.gcda
+*.gcno
+
+# Valgrind output
+*.valgrind
+vgcore.*
+
+# Clang tools
+.clang_complete
+.clang-format
+.clang-tidy
