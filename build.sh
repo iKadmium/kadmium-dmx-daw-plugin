@@ -16,18 +16,8 @@ fi
 cd build
 
 # Method selection
-if [ -f "/usr/local/vcpkg/scripts/buildsystems/vcpkg.cmake" ] && [ -d "/usr/local/vcpkg/installed/x64-linux/share/JUCE" ]; then
-    echo "📦 Using vcpkg JUCE installation"
-    cmake .. -DCMAKE_TOOLCHAIN_FILE=../vcpkg-cmake-toolchain.cmake -DCMAKE_PREFIX_PATH=/usr/local/vcpkg/installed/x64-linux -DCMAKE_BUILD_TYPE=Debug
-elif [ -d "../external/JUCE" ]; then
-    echo "🔗 Using git submodule JUCE installation"
-    cp ../CMakeLists-Submodule.txt ../CMakeLists.txt
-    cmake .. -DCMAKE_BUILD_TYPE=Release
-else
-    echo "⬇️  Using FetchContent to download JUCE"
-    cp ../CMakeLists-FetchContent.txt ../CMakeLists.txt
-    cmake .. -DCMAKE_BUILD_TYPE=Release
-fi
+echo "📦 Using vcpkg JUCE installation"
+cmake .. -DCMAKE_TOOLCHAIN_FILE=../vcpkg-cmake-toolchain.cmake -DCMAKE_PREFIX_PATH=/usr/local/vcpkg/installed/x64-linux -DCMAKE_BUILD_TYPE=Debug
 
 echo "🛠️  Building plugin..."
 cmake --build . --config Release

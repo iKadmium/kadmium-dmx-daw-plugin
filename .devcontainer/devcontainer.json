@@ -10,9 +10,16 @@
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
 	// Use 'postCreateCommand' to run commands after the container is created.
-	"postCreateCommand": "sudo apt update && sudo apt install -y autoconf libtool pkg-config libx11-dev libxcomposite-dev libxext-dev libasound2-dev libxcursor-dev libxinerama-dev libxrandr-dev libxrender-dev libfreetype6-dev libfontconfig1-dev libopengl-dev libgl1-mesa-dev libglu1-mesa-dev mesa-common-dev",
+	// "postCreateCommand": "",
 	// Configure tool-specific properties.
 	// "customizations": {},
 	// Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
 	// "remoteUser": "root"
+	"containerEnv": {
+		"DISPLAY": ":0"
+	},
+	"mounts": [
+		"source=/tmp/.X11-unix,target=/tmp/.X11-unix,type=bind",
+		"source=/dev/snd,target=/dev/snd,type=bind"
+	]
 }

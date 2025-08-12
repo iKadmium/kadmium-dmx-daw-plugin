@@ -9,9 +9,7 @@ A JUCE-based audio plugin for DMX lighting control in digital audio workstations
 - CMake 3.22+
 - Git
 
-### Build Options
-
-#### Option 1: Using vcpkg (Recommended)
+### Package installation
 ```bash
 # Install JUCE via vcpkg
 vcpkg install juce
@@ -22,22 +20,6 @@ cd build
 cmake .. -DCMAKE_TOOLCHAIN_FILE=/usr/local/vcpkg/scripts/buildsystems/vcpkg.cmake
 cmake --build .
 ```
-
-#### Option 2: Using Git Submodules
-```bash
-# Clone JUCE as submodule
-git submodule add https://github.com/juce-framework/JUCE.git external/JUCE
-git submodule update --init --recursive
-
-# Build
-mkdir build
-cd build
-cmake ..
-cmake --build .
-```
-
-#### Option 3: Using FetchContent (CMake)
-CMake will automatically download JUCE during configuration.
 
 ## Building
 
