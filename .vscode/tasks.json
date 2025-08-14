@@ -75,7 +75,7 @@
         {
             "label": "Run Standalone Plugin",
             "type": "shell",
-            "command": "./build/KadmiumDMXPlugin_artefacts/Release/Standalone/KadmiumDMXPlugin",
+            "command": "./build/KadmiumDMXPlugin_artefacts/Release/Standalone/Kadmium DMX Plugin",
             "options": {
                 "cwd": "${workspaceFolder}"
             },

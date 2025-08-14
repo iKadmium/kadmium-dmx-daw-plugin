@@ -10,12 +10,205 @@ KadmiumDMXAudioProcessor::KadmiumDMXAudioProcessor()
 #endif
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true)
 #endif
-      )
+                         ),
+      selectedGroupId("0") // Default to group 0
 {
+    // Initialize parameter definitions first
+    initializeParameterDefinitions();
+
+    // Initialize default MIDI map
+    createDefaultMidiMap();
+
+    // Then create the APVTS with the layout
+    apvts.reset(new juce::AudioProcessorValueTreeState(*this, nullptr, "Parameters", createParameterLayout()));
+
+    // Register as listener for parameter changes
+    for (const auto& paramPair : parameterDefinitions)
+    {
+        apvts->addParameterListener(paramPair.second.id, this);
+    }
+
+    // Start the MIDI blast timer (every 5 seconds)
+    startTimer(MIDI_BLAST_INTERVAL_MS);
+
+    // Test MIDI map functionality (remove this in production)
+    testMidiMapFunctionality();
 }
 
 KadmiumDMXAudioProcessor::~KadmiumDMXAudioProcessor()
 {
+    stopTimer();
+    
+    // Remove parameter listeners
+    if (apvts)
+    {
+        for (const auto& paramPair : parameterDefinitions)
+        {
+            apvts->removeParameterListener(paramPair.second.id, this);
+        }
+    }
+}
+
+//==============================================================================
+void KadmiumDMXAudioProcessor::initializeParameterDefinitions()
+{
+    // Define our current parameters - this is where you'd modify to add/remove parameters
+    parameterDefinitions["hue"] = ParameterDefinition("hue", "Hue", 0.0f, 360.0f, 0.0f, juce::String::fromUTF8(u8"°"));
+    parameterDefinitions["saturation"] = ParameterDefinition("saturation", "Saturation", 0.0f, 100.0f, 100.0f, "%");
+    parameterDefinitions["brightness"] = ParameterDefinition("brightness", "Brightness", 0.0f, 100.0f, 100.0f, "%");
+
+    // You could easily add more parameters here:
+    // parameterDefinitions["intensity"] = ParameterDefinition("intensity", "Intensity", 0.0f, 100.0f, 100.0f, "%");
+    // parameterDefinitions["strobe"] = ParameterDefinition("strobe", "Strobe Rate", 0.0f, 20.0f, 0.0f, "Hz");
+}
+
+void KadmiumDMXAudioProcessor::recreateParametersFromMidiMap()
+{
+    // Clear existing parameter definitions
+    parameterDefinitions.clear();
+
+    // Create parameters from MIDI map attributes
+    for (const auto &attributePair : currentMidiMap.attributes)
+    {
+        const juce::String &attributeId = attributePair.first;
+        const juce::String &attributeName = attributePair.second;
+
+        // Determine parameter range based on attribute name
+        float minValue = 0.0f;
+        float maxValue = 100.0f;
+        float defaultValue = 0.0f;
+        juce::String unit = "";
+
+        if (attributeName.containsIgnoreCase("hue"))
+        {
+            maxValue = 360.0f;
+            unit = juce::String::fromUTF8(u8"°");
+        }
+        else if (attributeName.containsIgnoreCase("saturation") ||
+                 attributeName.containsIgnoreCase("brightness") ||
+                 attributeName.containsIgnoreCase("intensity"))
+        {
+            maxValue = 100.0f;
+            defaultValue = 100.0f;
+            unit = "%";
+        }
+        else if (attributeName.containsIgnoreCase("strobe"))
+        {
+            maxValue = 20.0f;
+            unit = "Hz";
+        }
+
+        // Create parameter with lowercase ID for consistency
+        juce::String paramId = attributeName.toLowerCase().removeCharacters(" ");
+        parameterDefinitions[paramId] = ParameterDefinition(
+            paramId, attributeName, minValue, maxValue, defaultValue, unit);
+    }
+
+    // Recreate APVTS with new parameters
+    apvts.reset(new juce::AudioProcessorValueTreeState(*this, nullptr, "Parameters", createParameterLayout()));
+    
+    // Re-register parameter listeners for the new parameters
+    for (const auto& paramPair : parameterDefinitions)
+    {
+        apvts->addParameterListener(paramPair.second.id, this);
+    }
+}
+
+juce::AudioProcessorValueTreeState::ParameterLayout KadmiumDMXAudioProcessor::createParameterLayout()
+{
+    juce::AudioProcessorValueTreeState::ParameterLayout layout;
+
+    // Create parameters dynamically from our definitions
+    for (const auto &paramPair : parameterDefinitions)
+    {
+        const auto &def = paramPair.second;
+
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            def.id,
+            def.name,
+            juce::NormalisableRange<float>(def.minValue, def.maxValue, 1.0f),
+            def.defaultValue,
+            juce::AudioParameterFloatAttributes().withLabel(def.unit)));
+    }
+
+    return layout;
+}
+
+//==============================================================================
+float KadmiumDMXAudioProcessor::getParameterValue(const juce::String &parameterID) const
+{
+    auto *param = apvts->getParameter(parameterID);
+    if (param != nullptr)
+        return param->getValue();
+    return 0.0f;
+}
+
+void KadmiumDMXAudioProcessor::setParameterValue(const juce::String &parameterID, float value)
+{
+    auto *param = apvts->getParameter(parameterID);
+    if (param != nullptr)
+    {
+        param->setValueNotifyingHost(value);
+
+        // Send MIDI CC when parameter changes
+        if (currentMidiMap.hasGroup(selectedGroupId))
+        {
+            // Find corresponding attribute ID in MIDI map
+            for (const auto &attributePair : currentMidiMap.attributes)
+            {
+                const juce::String &attributeId = attributePair.first;
+                const juce::String &attributeName = attributePair.second;
+
+                // Match parameter to attribute (case-insensitive)
+                if (parameterID.containsIgnoreCase(attributeName) ||
+                    attributeName.toLowerCase().removeCharacters(" ") == parameterID)
+                {
+                    // Get parameter definition for value conversion
+                    auto paramDef = getParameterDefinition(parameterID);
+
+                    // Normalize to 0-1 range, then scale to 0-127
+                    float normalizedValue = (value - paramDef.minValue) / (paramDef.maxValue - paramDef.minValue);
+                    int midiValue = juce::roundToInt(normalizedValue * 127.0f);
+
+                    // Send MIDI CC
+                    int midiChannel = selectedGroupId.getIntValue() + 1; // Convert to 1-based MIDI channel
+                    int ccNumber = attributeId.getIntValue();
+                    sendMidiCC(midiChannel, ccNumber, midiValue);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+juce::StringArray KadmiumDMXAudioProcessor::getAllParameterIDs() const
+{
+    juce::StringArray ids;
+    for (const auto &paramPair : parameterDefinitions)
+    {
+        ids.add(paramPair.first);
+    }
+    return ids;
+}
+
+KadmiumDMXAudioProcessor::ParameterDefinition KadmiumDMXAudioProcessor::getParameterDefinition(const juce::String &parameterID) const
+{
+    auto it = parameterDefinitions.find(parameterID);
+    if (it != parameterDefinitions.end())
+        return it->second;
+
+    // Return empty definition if not found
+    return ParameterDefinition();
+}
+
+std::vector<KadmiumDMXAudioProcessor::ParameterDefinition> KadmiumDMXAudioProcessor::getAllParameterDefinitions() const
+{
+    std::vector<ParameterDefinition> definitions;
+    for (const auto &paramPair : parameterDefinitions)
+    {
+        definitions.push_back(paramPair.second);
+    }
+    return definitions;
 }
 
 //==============================================================================
@@ -127,26 +320,20 @@ void KadmiumDMXAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
     auto totalNumInputChannels = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
 
-    // In case we have more outputs than inputs, this code clears any output
-    // channels that didn't contain input data, (because these aren't
-    // guaranteed to be empty - they may contain garbage).
-    // This is here to avoid people getting screaming feedback
-    // when they first compile a plugin, but obviously you don't need to keep
-    // this code if your algorithm always overwrites all the output channels.
+    // Clear unused outputs
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
-    // This is the place where you'd normally do the guts of your plugin's
-    // audio processing...
-    // Make sure to reset the state if your inner loop is processing
-    // the samples and the outer loop is handling the channels.
-    // Alternatively, you can process the samples with the channels
-    // interleaved by keeping the same state.
+    // Add any pending MIDI output messages
+    midiMessages.addEvents(midiOutputBuffer, 0, buffer.getNumSamples(), 0);
+    midiOutputBuffer.clear();
+
+    // Audio processing (if needed)
     for (int channel = 0; channel < totalNumInputChannels; ++channel)
     {
         auto *channelData = buffer.getWritePointer(channel);
         juce::ignoreUnused(channelData);
-        // ..do something to the data...
+        // Audio processing would go here if needed
     }
 }
 
@@ -164,17 +351,275 @@ juce::AudioProcessorEditor *KadmiumDMXAudioProcessor::createEditor()
 //==============================================================================
 void KadmiumDMXAudioProcessor::getStateInformation(juce::MemoryBlock &destData)
 {
-    // You should use this method to store your parameters in the memory block.
-    // You could do that either as raw data, or use the XML or ValueTree classes
-    // as intermediaries to make it easy to save and load complex data.
-    juce::ignoreUnused(destData);
+    // Save the parameter state
+    auto state = apvts->copyState();
+    std::unique_ptr<juce::XmlElement> xml(state.createXml());
+    copyXmlToBinary(*xml, destData);
 }
 
 void KadmiumDMXAudioProcessor::setStateInformation(const void *data, int sizeInBytes)
 {
-    // You should use this method to restore your parameters from this memory block,
-    // whose contents will have been created by the getStateInformation() call.
-    juce::ignoreUnused(data, sizeInBytes);
+    // Restore the parameter state
+    std::unique_ptr<juce::XmlElement> xmlState(getXmlFromBinary(data, sizeInBytes));
+
+    if (xmlState.get() != nullptr)
+        if (xmlState->hasTagName(apvts->state.getType()))
+            apvts->replaceState(juce::ValueTree::fromXml(*xmlState));
+}
+
+//==============================================================================
+// MIDI Map management
+
+juce::Result KadmiumDMXAudioProcessor::loadMidiMap(const juce::String &jsonString)
+{
+    MidiMap newMidiMap;
+    auto result = MidiMapSerializer::deserialize(jsonString, newMidiMap);
+
+    if (result.wasOk())
+    {
+        currentMidiMap = std::move(newMidiMap);
+        recreateParametersFromMidiMap(); // Recreate parameters from new MIDI map
+        DBG("MIDI Map loaded successfully:");
+        DBG(currentMidiMap.toString());
+    }
+    else
+    {
+        DBG("Failed to load MIDI Map: " + result.getErrorMessage());
+    }
+
+    return result;
+}
+
+juce::Result KadmiumDMXAudioProcessor::loadMidiMapFromFile(const juce::File &file)
+{
+    MidiMap newMidiMap;
+    auto result = MidiMapSerializer::loadFromFile(file, newMidiMap);
+
+    if (result.wasOk())
+    {
+        currentMidiMap = std::move(newMidiMap);
+        recreateParametersFromMidiMap(); // Recreate parameters from new MIDI map
+        DBG("MIDI Map loaded from file: " + file.getFullPathName());
+        DBG(currentMidiMap.toString());
+    }
+    else
+    {
+        DBG("Failed to load MIDI Map from file: " + result.getErrorMessage());
+    }
+
+    return result;
+}
+
+juce::String KadmiumDMXAudioProcessor::serializeMidiMap() const
+{
+    return MidiMapSerializer::serialize(currentMidiMap);
+}
+
+void KadmiumDMXAudioProcessor::createDefaultMidiMap()
+{
+    // Create the default MIDI map matching your example
+    currentMidiMap.groups.clear();
+    currentMidiMap.attributes.clear();
+
+    // Groups
+    currentMidiMap.groups["0"] = "Vocalist";
+    currentMidiMap.groups["1"] = "Guitarist";
+    currentMidiMap.groups["2"] = "Bassist";
+    currentMidiMap.groups["3"] = "Drummer";
+    currentMidiMap.groups["4"] = "Rear";
+
+    // Attributes
+    currentMidiMap.attributes["1"] = "Hue";
+    currentMidiMap.attributes["2"] = "Saturation";
+    currentMidiMap.attributes["3"] = "Brightness";
+    currentMidiMap.attributes["4"] = "Strobe";
+
+    DBG("Default MIDI Map created:");
+    DBG(currentMidiMap.toString());
+}
+
+void KadmiumDMXAudioProcessor::testMidiMapFunctionality()
+{
+    DBG("=== Testing MIDI Map Functionality ===");
+
+    // Test serialization
+    auto serialized = serializeMidiMap();
+    DBG("Serialized MIDI Map:");
+    DBG(serialized);
+
+    // Test deserialization with your example JSON
+    juce::String testJson = R"({
+    "groups": {
+        "0": "Vocalist",
+        "1": "Guitarist", 
+        "2": "Bassist",
+        "3": "Drummer",
+        "4": "Rear"
+    },
+    "attributes": {
+        "1": "Hue",
+        "2": "Saturation",
+        "3": "Brightness",
+        "4": "Strobe"
+    }
+})";
+
+    auto result = loadMidiMap(testJson);
+    if (result.wasOk())
+    {
+        DBG("Successfully loaded test JSON!");
+
+        // Test accessors
+        DBG("Group '1' is: " + currentMidiMap.getGroupName("1"));
+        DBG("Attribute '3' is: " + currentMidiMap.getAttributeName("3"));
+
+        // Test all IDs
+        auto groupIds = currentMidiMap.getAllGroupIds();
+        auto attributeIds = currentMidiMap.getAllAttributeIds();
+
+        DBG("All group IDs: " + groupIds.joinIntoString(", "));
+        DBG("All attribute IDs: " + attributeIds.joinIntoString(", "));
+    }
+    else
+    {
+        DBG("Failed to load test JSON: " + result.getErrorMessage());
+    }
+}
+
+//==============================================================================
+// Group selection methods
+juce::String KadmiumDMXAudioProcessor::getSelectedGroup() const
+{
+    return selectedGroupId;
+}
+
+void KadmiumDMXAudioProcessor::setSelectedGroup(const juce::String &groupId)
+{
+    if (currentMidiMap.hasGroup(groupId))
+    {
+        selectedGroupId = groupId;
+        DBG("Selected group: " + groupId + " (" + currentMidiMap.getGroupName(groupId) + ")");
+    }
+}
+
+juce::StringArray KadmiumDMXAudioProcessor::getAvailableGroups() const
+{
+    return currentMidiMap.getAllGroupIds();
+}
+
+//==============================================================================
+// MIDI output methods
+void KadmiumDMXAudioProcessor::sendMidiCC(int channel, int ccNumber, int value)
+{
+    // Clamp values to valid MIDI ranges
+    channel = juce::jlimit(1, 16, channel);
+    ccNumber = juce::jlimit(0, 127, ccNumber);
+    value = juce::jlimit(0, 127, value);
+
+    // Create MIDI CC message
+    auto midiMessage = juce::MidiMessage::controllerEvent(channel, ccNumber, value);
+
+    // Add to output buffer (will be sent in next processBlock call)
+    midiOutputBuffer.addEvent(midiMessage, 0);
+
+    DBG("Sending MIDI CC: Channel " + juce::String(channel) +
+        ", CC " + juce::String(ccNumber) +
+        ", Value " + juce::String(value));
+}
+
+void KadmiumDMXAudioProcessor::sendAllParametersAsMidi()
+{
+    if (!currentMidiMap.hasGroup(selectedGroupId))
+        return;
+
+    // Get the MIDI channel for the selected group
+    int midiChannel = selectedGroupId.getIntValue() + 1; // Convert to 1-based MIDI channel
+
+    // Send all parameters as MIDI CC
+    for (const auto &paramPair : parameterDefinitions)
+    {
+        const juce::String &paramId = paramPair.first;
+
+        // Find corresponding attribute ID in MIDI map
+        for (const auto &attributePair : currentMidiMap.attributes)
+        {
+            const juce::String &attributeId = attributePair.first;
+            const juce::String &attributeName = attributePair.second;
+
+            // Match parameter to attribute (case-insensitive)
+            if (paramId.containsIgnoreCase(attributeName) ||
+                attributeName.toLowerCase().removeCharacters(" ") == paramId)
+            {
+                // Get parameter value and convert to MIDI range (0-127)
+                float paramValue = getParameterValue(paramId);
+                auto paramDef = getParameterDefinition(paramId);
+
+                // Normalize to 0-1 range, then scale to 0-127
+                float normalizedValue = (paramValue - paramDef.minValue) / (paramDef.maxValue - paramDef.minValue);
+                int midiValue = juce::roundToInt(normalizedValue * 127.0f);
+
+                // Send MIDI CC
+                int ccNumber = attributeId.getIntValue();
+                sendMidiCC(midiChannel, ccNumber, midiValue);
+                break;
+            }
+        }
+    }
+}
+
+//==============================================================================
+// Timer callback for periodic MIDI output
+void KadmiumDMXAudioProcessor::timerCallback()
+{
+    // Send all parameters every 5 seconds
+    sendAllParametersAsMidi();
+}
+
+//==============================================================================
+// Parameter change callback for MIDI output
+void KadmiumDMXAudioProcessor::parameterChanged(const juce::String& parameterID, float newValue)
+{
+    // Send MIDI CC when parameter changes
+    if (!currentMidiMap.hasGroup(selectedGroupId))
+        return;
+
+    // Find corresponding attribute ID in MIDI map
+    for (const auto &attributePair : currentMidiMap.attributes)
+    {
+        const juce::String &attributeId = attributePair.first;
+        const juce::String &attributeName = attributePair.second;
+
+        // Match parameter to attribute (case-insensitive)
+        if (parameterID.containsIgnoreCase(attributeName) ||
+            attributeName.toLowerCase().removeCharacters(" ") == parameterID)
+        {
+            // Get parameter definition for value conversion
+            auto paramDef = getParameterDefinition(parameterID);
+            
+            // Get the actual current value from the parameter
+            auto* param = apvts->getParameter(parameterID);
+            if (param)
+            {
+                float currentValue = param->getValue();
+                // Convert normalized value back to actual range
+                float actualValue = paramDef.minValue + currentValue * (paramDef.maxValue - paramDef.minValue);
+                
+                // Normalize to 0-1 range, then scale to 0-127
+                float normalizedValue = (actualValue - paramDef.minValue) / (paramDef.maxValue - paramDef.minValue);
+                int midiValue = juce::roundToInt(normalizedValue * 127.0f);
+
+                // Send MIDI CC
+                int midiChannel = selectedGroupId.getIntValue() + 1; // Convert to 1-based MIDI channel
+                int ccNumber = attributeId.getIntValue();
+                sendMidiCC(midiChannel, ccNumber, midiValue);
+                
+                DBG("Parameter '" + parameterID + "' changed to " + juce::String(actualValue) + 
+                    " -> MIDI CC Ch" + juce::String(midiChannel) + " CC" + juce::String(ccNumber) + 
+                    " Val" + juce::String(midiValue));
+                break;
+            }
+        }
+    }
 }
 
 //==============================================================================

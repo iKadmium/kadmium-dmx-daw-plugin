@@ -21,9 +21,9 @@ FetchContent_MakeAvailable(JUCE)
 juce_add_plugin(KadmiumDMXPlugin
     COMPANY_NAME "Kadmium"
     IS_SYNTH FALSE
-    NEEDS_MIDI_INPUT TRUE
-    NEEDS_MIDI_OUTPUT FALSE
-    IS_MIDI_EFFECT FALSE
+    NEEDS_MIDI_INPUT FALSE
+    NEEDS_MIDI_OUTPUT TRUE
+    IS_MIDI_EFFECT TRUE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD TRUE
     PLUGIN_MANUFACTURER_CODE Kadm
@@ -36,6 +36,7 @@ juce_add_plugin(KadmiumDMXPlugin
 target_sources(KadmiumDMXPlugin PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/MidiMap.cpp
 )
 
 # Link JUCE modules
