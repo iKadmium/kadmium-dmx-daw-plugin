@@ -2,11 +2,13 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "MidiMap.h"
+#include "MqttClient.h"
 
 //==============================================================================
-class KadmiumDMXAudioProcessor : public juce::AudioProcessor, 
+class KadmiumDMXAudioProcessor : public juce::AudioProcessor,
                                  public juce::Timer,
-                                 public juce::AudioProcessorValueTreeState::Listener
+                                 public juce::AudioProcessorValueTreeState::Listener,
+                                 public juce::ChangeBroadcaster
 {
 public:
     //==============================================================================
@@ -84,6 +86,7 @@ public:
     const MidiMap &getMidiMap() const { return currentMidiMap; }
     juce::Result loadMidiMap(const juce::String &jsonString);
     juce::Result loadMidiMapFromFile(const juce::File &file);
+    void loadMidiMapFromMqtt();
     juce::String serializeMidiMap() const;
     void createDefaultMidiMap();
 
@@ -96,16 +99,17 @@ public:
     void sendMidiCC(int channel, int ccNumber, int value);
     void sendAllParametersAsMidi();
 
-    // Test function to demonstrate MIDI map functionality
-    void testMidiMapFunctionality();
+    // MQTT functionality
+    bool isMqttConnected() const;
+    juce::String getMqttStatus() const;
 
 private:
     //==============================================================================
     // Parameter management
     std::unique_ptr<juce::AudioProcessorValueTreeState> apvts;
 
-    // Dynamic parameter definitions - this is our "hashmap"
-    std::map<juce::String, ParameterDefinition> parameterDefinitions;
+    // Dynamic parameter definitions - preserves order from MIDI map
+    std::vector<std::pair<juce::String, ParameterDefinition>> parameterDefinitions;
 
     // MIDI Map for group and attribute mapping
     MidiMap currentMidiMap;
@@ -118,6 +122,9 @@ private:
 
     // Timer for periodic MIDI output (every 5 seconds)
     static constexpr int MIDI_BLAST_INTERVAL_MS = 5000; // 5 seconds
+
+    // MQTT client for networked DMX control
+    MqttClient mqttClient;
 
     // Initialize parameter definitions
     void initializeParameterDefinitions();
@@ -132,7 +139,10 @@ private:
     void timerCallback() override;
 
     // Parameter change callback for MIDI output
-    void parameterChanged(const juce::String& parameterID, float newValue) override;
+    void parameterChanged(const juce::String &parameterID, float newValue) override;
+
+    // MQTT message handler
+    void handleMqttMessage(const juce::String &topic, const juce::String &message);
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(KadmiumDMXAudioProcessor)
 };

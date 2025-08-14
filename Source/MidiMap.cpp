@@ -5,24 +5,42 @@
 
 bool MidiMap::hasGroup(const juce::String &groupId) const
 {
-    return groups.find(groupId) != groups.end();
+    for (const auto &pair : groups)
+    {
+        if (pair.first == groupId)
+            return true;
+    }
+    return false;
 }
 
 bool MidiMap::hasAttribute(const juce::String &attributeId) const
 {
-    return attributes.find(attributeId) != attributes.end();
+    for (const auto &pair : attributes)
+    {
+        if (pair.first == attributeId)
+            return true;
+    }
+    return false;
 }
 
 juce::String MidiMap::getGroupName(const juce::String &groupId) const
 {
-    auto it = groups.find(groupId);
-    return (it != groups.end()) ? it->second : juce::String();
+    for (const auto &pair : groups)
+    {
+        if (pair.first == groupId)
+            return pair.second;
+    }
+    return juce::String();
 }
 
 juce::String MidiMap::getAttributeName(const juce::String &attributeId) const
 {
-    auto it = attributes.find(attributeId);
-    return (it != attributes.end()) ? it->second : juce::String();
+    for (const auto &pair : attributes)
+    {
+        if (pair.first == attributeId)
+            return pair.second;
+    }
+    return juce::String();
 }
 
 juce::StringArray MidiMap::getAllGroupIds() const
@@ -101,7 +119,7 @@ juce::Result MidiMapSerializer::deserialize(const juce::var &jsonVar, MidiMap &m
             {
                 for (const auto &property : groupsObject->getProperties())
                 {
-                    midiMap.groups[property.name.toString()] = property.value.toString();
+                    midiMap.groups.push_back({property.name.toString(), property.value.toString()});
                 }
             }
         }
@@ -117,7 +135,7 @@ juce::Result MidiMapSerializer::deserialize(const juce::var &jsonVar, MidiMap &m
             {
                 for (const auto &property : attributesObject->getProperties())
                 {
-                    midiMap.attributes[property.name.toString()] = property.value.toString();
+                    midiMap.attributes.push_back({property.name.toString(), property.value.toString()});
                 }
             }
         }
@@ -180,7 +198,7 @@ juce::Result MidiMapSerializer::saveToFile(const juce::File &file, const MidiMap
 //==============================================================================
 // Private helper methods
 
-juce::Result MidiMapSerializer::parseGroups(const juce::var &groupsVar, std::map<juce::String, juce::String> &groups)
+juce::Result MidiMapSerializer::parseGroups(const juce::var &groupsVar, std::vector<std::pair<juce::String, juce::String>> &groups)
 {
     if (!groupsVar.isObject())
         return juce::Result::fail("'groups' field must be an object");
@@ -197,13 +215,13 @@ juce::Result MidiMapSerializer::parseGroups(const juce::var &groupsVar, std::map
         if (key.isEmpty() || value.isEmpty())
             return juce::Result::fail("Group ID and name cannot be empty");
 
-        groups[key] = value;
+        groups.push_back({key, value});
     }
 
     return juce::Result::ok();
 }
 
-juce::Result MidiMapSerializer::parseAttributes(const juce::var &attributesVar, std::map<juce::String, juce::String> &attributes)
+juce::Result MidiMapSerializer::parseAttributes(const juce::var &attributesVar, std::vector<std::pair<juce::String, juce::String>> &attributes)
 {
     if (!attributesVar.isObject())
         return juce::Result::fail("'attributes' field must be an object");
@@ -220,13 +238,13 @@ juce::Result MidiMapSerializer::parseAttributes(const juce::var &attributesVar, 
         if (key.isEmpty() || value.isEmpty())
             return juce::Result::fail("Attribute ID and name cannot be empty");
 
-        attributes[key] = value;
+        attributes.push_back({key, value});
     }
 
     return juce::Result::ok();
 }
 
-juce::var MidiMapSerializer::createGroupsVar(const std::map<juce::String, juce::String> &groups)
+juce::var MidiMapSerializer::createGroupsVar(const std::vector<std::pair<juce::String, juce::String>> &groups)
 {
     auto *groupsObject = new juce::DynamicObject();
 
@@ -238,7 +256,7 @@ juce::var MidiMapSerializer::createGroupsVar(const std::map<juce::String, juce::
     return juce::var(groupsObject);
 }
 
-juce::var MidiMapSerializer::createAttributesVar(const std::map<juce::String, juce::String> &attributes)
+juce::var MidiMapSerializer::createAttributesVar(const std::vector<std::pair<juce::String, juce::String>> &attributes)
 {
     auto *attributesObject = new juce::DynamicObject();
 

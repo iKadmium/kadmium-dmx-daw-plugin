@@ -20,7 +20,8 @@ private:
 
 //==============================================================================
 class KadmiumDMXAudioProcessorEditor : public juce::AudioProcessorEditor,
-                                       public juce::Timer
+                                       public juce::Timer,
+                                       public juce::ChangeListener
 {
 public:
     KadmiumDMXAudioProcessorEditor(KadmiumDMXAudioProcessor &);
@@ -30,6 +31,9 @@ public:
     void paint(juce::Graphics &) override;
     void resized() override;
     void timerCallback() override;
+
+    // ChangeListener callback
+    void changeListenerCallback(juce::ChangeBroadcaster *source) override;
 
 private:
     // Helper function to convert HSB to RGB
@@ -47,6 +51,10 @@ private:
 
     juce::TextButton toggleSlidersButton;
     bool slidersVisible = true;
+
+    // MQTT functionality
+    juce::TextButton loadMidiMapButton;
+    juce::Label mqttStatusLabel;
 
     // Group selection dropdown
     juce::ComboBox groupSelectionCombo;
@@ -72,6 +80,9 @@ private:
 
     // Update group selection dropdown
     void updateGroupSelection();
+
+    // Recreate UI when MIDI map changes
+    void recreateUIFromMidiMap();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(KadmiumDMXAudioProcessorEditor)
 };

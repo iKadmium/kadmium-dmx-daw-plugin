@@ -23,7 +23,7 @@ KadmiumDMXAudioProcessor::KadmiumDMXAudioProcessor()
     apvts.reset(new juce::AudioProcessorValueTreeState(*this, nullptr, "Parameters", createParameterLayout()));
 
     // Register as listener for parameter changes
-    for (const auto& paramPair : parameterDefinitions)
+    for (const auto &paramPair : parameterDefinitions)
     {
         apvts->addParameterListener(paramPair.second.id, this);
     }
@@ -31,18 +31,31 @@ KadmiumDMXAudioProcessor::KadmiumDMXAudioProcessor()
     // Start the MIDI blast timer (every 5 seconds)
     startTimer(MIDI_BLAST_INTERVAL_MS);
 
-    // Test MIDI map functionality (remove this in production)
-    testMidiMapFunctionality();
+    // Initialize MQTT client with callbacks
+    mqttClient.setConnectionCallback([this](bool connected, const juce::String &error)
+                                     {
+        if (connected) {
+            DBG("MQTT connected successfully");
+            // Subscribe to DMX command topics
+            mqttClient.subscribe("dmx/+/command");
+        } else {
+            DBG("MQTT connection failed: " + error);
+        } });
+
+    mqttClient.setMessageCallback([this](const juce::String &topic, const juce::String &message)
+                                  {
+        // Handle incoming DMX commands
+        handleMqttMessage(topic, message); });
 }
 
 KadmiumDMXAudioProcessor::~KadmiumDMXAudioProcessor()
 {
     stopTimer();
-    
+
     // Remove parameter listeners
     if (apvts)
     {
-        for (const auto& paramPair : parameterDefinitions)
+        for (const auto &paramPair : parameterDefinitions)
         {
             apvts->removeParameterListener(paramPair.second.id, this);
         }
@@ -53,13 +66,13 @@ KadmiumDMXAudioProcessor::~KadmiumDMXAudioProcessor()
 void KadmiumDMXAudioProcessor::initializeParameterDefinitions()
 {
     // Define our current parameters - this is where you'd modify to add/remove parameters
-    parameterDefinitions["hue"] = ParameterDefinition("hue", "Hue", 0.0f, 360.0f, 0.0f, juce::String::fromUTF8(u8"°"));
-    parameterDefinitions["saturation"] = ParameterDefinition("saturation", "Saturation", 0.0f, 100.0f, 100.0f, "%");
-    parameterDefinitions["brightness"] = ParameterDefinition("brightness", "Brightness", 0.0f, 100.0f, 100.0f, "%");
+    parameterDefinitions.push_back({"hue", ParameterDefinition("hue", "Hue", 0.0f, 360.0f, 0.0f, juce::String::fromUTF8(u8"°"))});
+    parameterDefinitions.push_back({"saturation", ParameterDefinition("saturation", "Saturation", 0.0f, 100.0f, 100.0f, "%")});
+    parameterDefinitions.push_back({"brightness", ParameterDefinition("brightness", "Brightness", 0.0f, 100.0f, 100.0f, "%")});
 
     // You could easily add more parameters here:
-    // parameterDefinitions["intensity"] = ParameterDefinition("intensity", "Intensity", 0.0f, 100.0f, 100.0f, "%");
-    // parameterDefinitions["strobe"] = ParameterDefinition("strobe", "Strobe Rate", 0.0f, 20.0f, 0.0f, "Hz");
+    // parameterDefinitions.push_back({"intensity", ParameterDefinition("intensity", "Intensity", 0.0f, 100.0f, 100.0f, "%")});
+    // parameterDefinitions.push_back({"strobe", ParameterDefinition("strobe", "Strobe Rate", 0.0f, 20.0f, 0.0f, "Hz")});
 }
 
 void KadmiumDMXAudioProcessor::recreateParametersFromMidiMap()
@@ -100,18 +113,21 @@ void KadmiumDMXAudioProcessor::recreateParametersFromMidiMap()
 
         // Create parameter with lowercase ID for consistency
         juce::String paramId = attributeName.toLowerCase().removeCharacters(" ");
-        parameterDefinitions[paramId] = ParameterDefinition(
-            paramId, attributeName, minValue, maxValue, defaultValue, unit);
+        parameterDefinitions.push_back({paramId, ParameterDefinition(
+                                                     paramId, attributeName, minValue, maxValue, defaultValue, unit)});
     }
 
     // Recreate APVTS with new parameters
     apvts.reset(new juce::AudioProcessorValueTreeState(*this, nullptr, "Parameters", createParameterLayout()));
-    
+
     // Re-register parameter listeners for the new parameters
-    for (const auto& paramPair : parameterDefinitions)
+    for (const auto &paramPair : parameterDefinitions)
     {
         apvts->addParameterListener(paramPair.second.id, this);
     }
+
+    // Notify listeners (including the editor) that the MIDI map has changed
+    sendChangeMessage();
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout KadmiumDMXAudioProcessor::createParameterLayout()
@@ -193,9 +209,11 @@ juce::StringArray KadmiumDMXAudioProcessor::getAllParameterIDs() const
 
 KadmiumDMXAudioProcessor::ParameterDefinition KadmiumDMXAudioProcessor::getParameterDefinition(const juce::String &parameterID) const
 {
-    auto it = parameterDefinitions.find(parameterID);
-    if (it != parameterDefinitions.end())
-        return it->second;
+    for (const auto &paramPair : parameterDefinitions)
+    {
+        if (paramPair.first == parameterID)
+            return paramPair.second;
+    }
 
     // Return empty definition if not found
     return ParameterDefinition();
@@ -410,6 +428,44 @@ juce::Result KadmiumDMXAudioProcessor::loadMidiMapFromFile(const juce::File &fil
     return result;
 }
 
+void KadmiumDMXAudioProcessor::loadMidiMapFromMqtt()
+{
+    DBG("Loading MIDI map from MQTT...");
+
+    // Set up MQTT connection callbacks
+    mqttClient.setConnectionCallback([this](bool connected, const juce::String &error)
+                                     {
+        if (connected)
+        {
+            DBG("MQTT connected successfully");
+            // Subscribe to the config/midi_map topic
+            mqttClient.subscribe("config/midi_map");
+        }
+        else
+        {
+            DBG("MQTT connection failed: " + error);
+        } });
+
+    mqttClient.setMessageCallback([this](const juce::String &topic, const juce::String &message)
+                                  {
+        if (topic == "config/midi_map")
+        {
+            DBG("Received MIDI map from MQTT: " + message);
+            auto result = loadMidiMap(message);
+            if (result.wasOk())
+            {
+                DBG("MIDI map loaded successfully from MQTT");
+            }
+            else
+            {
+                DBG("Failed to load MIDI map from MQTT: " + result.getErrorMessage());
+            }
+        } });
+
+    // Connect to localhost MQTT broker
+    mqttClient.connect("tcp://localhost:1883", "KadmiumDMXPlugin");
+}
+
 juce::String KadmiumDMXAudioProcessor::serializeMidiMap() const
 {
     return MidiMapSerializer::serialize(currentMidiMap);
@@ -421,69 +477,20 @@ void KadmiumDMXAudioProcessor::createDefaultMidiMap()
     currentMidiMap.groups.clear();
     currentMidiMap.attributes.clear();
 
-    // Groups
-    currentMidiMap.groups["0"] = "Vocalist";
-    currentMidiMap.groups["1"] = "Guitarist";
-    currentMidiMap.groups["2"] = "Bassist";
-    currentMidiMap.groups["3"] = "Drummer";
-    currentMidiMap.groups["4"] = "Rear";
+    // Groups - in order
+    currentMidiMap.groups.push_back({"0", "Vocalist"});
+    currentMidiMap.groups.push_back({"1", "Guitarist"});
+    currentMidiMap.groups.push_back({"2", "Bassist"});
+    currentMidiMap.groups.push_back({"3", "Drummer"});
+    currentMidiMap.groups.push_back({"4", "Rear"});
 
-    // Attributes
-    currentMidiMap.attributes["1"] = "Hue";
-    currentMidiMap.attributes["2"] = "Saturation";
-    currentMidiMap.attributes["3"] = "Brightness";
-    currentMidiMap.attributes["4"] = "Strobe";
+    // Attributes - in order
+    currentMidiMap.attributes.push_back({"1", "Hue"});
+    currentMidiMap.attributes.push_back({"2", "Saturation"});
+    currentMidiMap.attributes.push_back({"3", "Brightness"});
 
     DBG("Default MIDI Map created:");
     DBG(currentMidiMap.toString());
-}
-
-void KadmiumDMXAudioProcessor::testMidiMapFunctionality()
-{
-    DBG("=== Testing MIDI Map Functionality ===");
-
-    // Test serialization
-    auto serialized = serializeMidiMap();
-    DBG("Serialized MIDI Map:");
-    DBG(serialized);
-
-    // Test deserialization with your example JSON
-    juce::String testJson = R"({
-    "groups": {
-        "0": "Vocalist",
-        "1": "Guitarist", 
-        "2": "Bassist",
-        "3": "Drummer",
-        "4": "Rear"
-    },
-    "attributes": {
-        "1": "Hue",
-        "2": "Saturation",
-        "3": "Brightness",
-        "4": "Strobe"
-    }
-})";
-
-    auto result = loadMidiMap(testJson);
-    if (result.wasOk())
-    {
-        DBG("Successfully loaded test JSON!");
-
-        // Test accessors
-        DBG("Group '1' is: " + currentMidiMap.getGroupName("1"));
-        DBG("Attribute '3' is: " + currentMidiMap.getAttributeName("3"));
-
-        // Test all IDs
-        auto groupIds = currentMidiMap.getAllGroupIds();
-        auto attributeIds = currentMidiMap.getAllAttributeIds();
-
-        DBG("All group IDs: " + groupIds.joinIntoString(", "));
-        DBG("All attribute IDs: " + attributeIds.joinIntoString(", "));
-    }
-    else
-    {
-        DBG("Failed to load test JSON: " + result.getErrorMessage());
-    }
 }
 
 //==============================================================================
@@ -577,7 +584,7 @@ void KadmiumDMXAudioProcessor::timerCallback()
 
 //==============================================================================
 // Parameter change callback for MIDI output
-void KadmiumDMXAudioProcessor::parameterChanged(const juce::String& parameterID, float newValue)
+void KadmiumDMXAudioProcessor::parameterChanged(const juce::String &parameterID, float newValue)
 {
     // Send MIDI CC when parameter changes
     if (!currentMidiMap.hasGroup(selectedGroupId))
@@ -595,15 +602,15 @@ void KadmiumDMXAudioProcessor::parameterChanged(const juce::String& parameterID,
         {
             // Get parameter definition for value conversion
             auto paramDef = getParameterDefinition(parameterID);
-            
+
             // Get the actual current value from the parameter
-            auto* param = apvts->getParameter(parameterID);
+            auto *param = apvts->getParameter(parameterID);
             if (param)
             {
                 float currentValue = param->getValue();
                 // Convert normalized value back to actual range
                 float actualValue = paramDef.minValue + currentValue * (paramDef.maxValue - paramDef.minValue);
-                
+
                 // Normalize to 0-1 range, then scale to 0-127
                 float normalizedValue = (actualValue - paramDef.minValue) / (paramDef.maxValue - paramDef.minValue);
                 int midiValue = juce::roundToInt(normalizedValue * 127.0f);
@@ -612,13 +619,48 @@ void KadmiumDMXAudioProcessor::parameterChanged(const juce::String& parameterID,
                 int midiChannel = selectedGroupId.getIntValue() + 1; // Convert to 1-based MIDI channel
                 int ccNumber = attributeId.getIntValue();
                 sendMidiCC(midiChannel, ccNumber, midiValue);
-                
-                DBG("Parameter '" + parameterID + "' changed to " + juce::String(actualValue) + 
-                    " -> MIDI CC Ch" + juce::String(midiChannel) + " CC" + juce::String(ccNumber) + 
+
+                // Publish to MQTT if connected
+                if (mqttClient.getConnectionStatus())
+                {
+                    juce::String groupName = currentMidiMap.getGroupName(selectedGroupId);
+                    juce::String topic = "dmx/" + groupName + "/" + attributeName;
+                    mqttClient.publish(topic, juce::String(actualValue, 2));
+                }
+
+                DBG("Parameter '" + parameterID + "' changed to " + juce::String(actualValue) +
+                    " -> MIDI CC Ch" + juce::String(midiChannel) + " CC" + juce::String(ccNumber) +
                     " Val" + juce::String(midiValue));
                 break;
             }
         }
+    }
+}
+
+//==============================================================================
+//==============================================================================
+void KadmiumDMXAudioProcessor::handleMqttMessage(const juce::String &topic, const juce::String &message)
+{
+    DBG("MQTT message received on '" + topic + "': " + message);
+
+    // TODO: Add MQTT message handling logic here
+    // For example, handle incoming DMX control commands
+}
+
+bool KadmiumDMXAudioProcessor::isMqttConnected() const
+{
+    return mqttClient.getConnectionStatus();
+}
+
+juce::String KadmiumDMXAudioProcessor::getMqttStatus() const
+{
+    if (mqttClient.getConnectionStatus())
+    {
+        return "MQTT: Connected";
+    }
+    else
+    {
+        return "MQTT: Disconnected";
     }
 }
 

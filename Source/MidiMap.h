@@ -1,7 +1,8 @@
 #pragma once
 
 #include <juce_core/juce_core.h>
-#include <map>
+#include <vector>
+#include <utility>
 
 //==============================================================================
 /**
@@ -10,11 +11,11 @@
 
 struct MidiMap
 {
-    // Group ID to name mapping (e.g., "0" -> "Vocalist")
-    std::map<juce::String, juce::String> groups;
+    // Group ID to name mapping (e.g., "0" -> "Vocalist") - preserves order
+    std::vector<std::pair<juce::String, juce::String>> groups;
 
-    // Attribute ID to name mapping (e.g., "1" -> "Hue")
-    std::map<juce::String, juce::String> attributes;
+    // Attribute ID to name mapping (e.g., "1" -> "Hue") - preserves order
+    std::vector<std::pair<juce::String, juce::String>> attributes;
 
     // Default constructor
     MidiMap() = default;
@@ -64,8 +65,8 @@ public:
     static juce::Result saveToFile(const juce::File &file, const MidiMap &midiMap);
 
 private:
-    static juce::Result parseGroups(const juce::var &groupsVar, std::map<juce::String, juce::String> &groups);
-    static juce::Result parseAttributes(const juce::var &attributesVar, std::map<juce::String, juce::String> &attributes);
-    static juce::var createGroupsVar(const std::map<juce::String, juce::String> &groups);
-    static juce::var createAttributesVar(const std::map<juce::String, juce::String> &attributes);
+    static juce::Result parseGroups(const juce::var &groupsVar, std::vector<std::pair<juce::String, juce::String>> &groups);
+    static juce::Result parseAttributes(const juce::var &attributesVar, std::vector<std::pair<juce::String, juce::String>> &attributes);
+    static juce::var createGroupsVar(const std::vector<std::pair<juce::String, juce::String>> &groups);
+    static juce::var createAttributesVar(const std::vector<std::pair<juce::String, juce::String>> &attributes);
 };

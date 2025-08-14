@@ -15,7 +15,11 @@ FetchContent_Declare(
     GIT_TAG 8.0.7
     GIT_SHALLOW TRUE
 )
+
 FetchContent_MakeAvailable(JUCE)
+
+# Find Eclipse Paho MQTT C library
+find_package(eclipse-paho-mqtt-c CONFIG REQUIRED)
 
 # Add our plugin target
 juce_add_plugin(KadmiumDMXPlugin
@@ -37,6 +41,7 @@ target_sources(KadmiumDMXPlugin PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/MidiMap.cpp
+    Source/MqttClient.cpp
 )
 
 # Link JUCE modules
@@ -53,6 +58,7 @@ target_link_libraries(KadmiumDMXPlugin PRIVATE
     juce::juce_graphics
     juce::juce_gui_basics
     juce::juce_gui_extra
+    eclipse-paho-mqtt-c::paho-mqtt3as-static
 )
 
 # Compiler settings

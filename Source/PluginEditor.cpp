@@ -47,6 +47,19 @@ KadmiumDMXAudioProcessorEditor::KadmiumDMXAudioProcessorEditor(KadmiumDMXAudioPr
     };
     addAndMakeVisible(toggleSlidersButton);
 
+    // Set up MQTT load button
+    loadMidiMapButton.setButtonText("Load MIDI Map");
+    loadMidiMapButton.onClick = [this]()
+    {
+        audioProcessor.loadMidiMapFromMqtt();
+    };
+    addAndMakeVisible(loadMidiMapButton);
+
+    // Set up MQTT status label
+    mqttStatusLabel.setText("MQTT: Disconnected", juce::dontSendNotification);
+    mqttStatusLabel.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(mqttStatusLabel);
+
     // Set up group selection dropdown
     groupSelectionLabel.setText("Group:", juce::dontSendNotification);
     groupSelectionLabel.attachToComponent(&groupSelectionCombo, true);
@@ -71,6 +84,9 @@ KadmiumDMXAudioProcessorEditor::KadmiumDMXAudioProcessorEditor(KadmiumDMXAudioPr
 
     // Start timer to update color preview
     startTimer(50); // Update at 20 FPS
+
+    // Register as change listener for MIDI map changes
+    audioProcessor.addChangeListener(this);
 
     // Set the editor's size
     setSize(400, 550);
@@ -112,6 +128,8 @@ void KadmiumDMXAudioProcessorEditor::createParameterSliders()
 
 KadmiumDMXAudioProcessorEditor::~KadmiumDMXAudioProcessorEditor()
 {
+    // Remove change listener
+    audioProcessor.removeChangeListener(this);
     stopTimer();
 }
 
@@ -129,6 +147,12 @@ void KadmiumDMXAudioProcessorEditor::resized()
 
     // Toggle button at top
     toggleSlidersButton.setBounds(bounds.removeFromTop(30).reduced(margin));
+    bounds.removeFromTop(margin);
+
+    // MQTT controls
+    auto mqttArea = bounds.removeFromTop(60).reduced(margin);
+    loadMidiMapButton.setBounds(mqttArea.removeFromTop(30));
+    mqttStatusLabel.setBounds(mqttArea.removeFromTop(25));
     bounds.removeFromTop(margin);
 
     // Group selection dropdown
@@ -241,6 +265,9 @@ void KadmiumDMXAudioProcessorEditor::timerCallback()
         brightness = *brightnessParam;
 
     colorPreview.setHSB(hue, saturation, brightness);
+
+    // Update MQTT status
+    mqttStatusLabel.setText(audioProcessor.getMqttStatus(), juce::dontSendNotification);
 }
 
 void KadmiumDMXAudioProcessorEditor::updateGroupSelection()
@@ -260,4 +287,34 @@ void KadmiumDMXAudioProcessorEditor::updateGroupSelection()
     // Select current group
     juce::String currentGroup = audioProcessor.getSelectedGroup();
     groupSelectionCombo.setSelectedId(currentGroup.getIntValue() + 1);
+}
+
+void KadmiumDMXAudioProcessorEditor::recreateUIFromMidiMap()
+{
+    DBG("Recreating UI from new MIDI map");
+
+    // Recreate parameter sliders based on new MIDI map
+    createParameterSliders();
+
+    // Update group selection dropdown
+    updateGroupSelection();
+
+    // Trigger a resize to layout the new components
+    resized();
+
+    // Repaint the component
+    repaint();
+}
+
+void KadmiumDMXAudioProcessorEditor::changeListenerCallback(juce::ChangeBroadcaster *source)
+{
+    // Check if the change came from our processor
+    if (source == &audioProcessor)
+    {
+        DBG("MIDI map changed - updating UI");
+
+        // Schedule UI update on the message thread
+        juce::MessageManager::callAsync([this]()
+                                        { recreateUIFromMidiMap(); });
+    }
 }
